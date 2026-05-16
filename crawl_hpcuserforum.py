@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Crawl hpcuserforum.com, index all files (PDFs, PPTs, etc.), and optionally download them.
-Supports date filtering to only keep files from the last N years.
+Crawl hpcuserforum.com and hyperionresearch.com, index files (PDFs, XLS, etc.),
+and optionally download them. Supports date filtering to only keep files from
+the last N years.
 
 Requires: pip install requests beautifulsoup4 lxml
 
@@ -31,9 +32,6 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-BASE_URL = "https://www.hpcuserforum.com"
-UPLOADS_PREFIX = "https://www.hpcuserforum.com/wp-content/uploads/"
-
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -44,36 +42,63 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
-    "Referer": "https://www.hpcuserforum.com/",
 }
 
 ALL_EXTENSIONS      = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx", ".zip"}
 PDF_ONLY            = {".pdf"}
 ATTENDEE_EXTENSIONS = {".pdf", ".xls", ".xlsx"}
 
-START_URLS = [
-    BASE_URL + "/",
-    BASE_URL + "/presentations/",
-    BASE_URL + "/events/",
-    BASE_URL + "/agenda/",
-    BASE_URL + "/conference/",
-    BASE_URL + "/workshops/",
-    BASE_URL + "/tutorials/",
-    BASE_URL + "/2024/",
-    BASE_URL + "/2025/",
-    BASE_URL + "/2026/",
-    BASE_URL + "/2023/",
-    BASE_URL + "/2022/",
-    BASE_URL + "/2021/",
-    BASE_URL + "/2020/",
-    BASE_URL + "/2019/",
-    BASE_URL + "/2018/",
-    BASE_URL + "/2017/",
-    BASE_URL + "/category/presentations/",
-    BASE_URL + "/category/events/",
-    BASE_URL + "/wp-sitemap.xml",
-    BASE_URL + "/sitemap_index.xml",
-]
+# ---------------------------------------------------------------------------
+# Site definitions — add new sites here
+# ---------------------------------------------------------------------------
+
+SITES = {
+    "hpcuserforum": {
+        "base": "https://www.hpcuserforum.com",
+        "start_urls": [
+            "https://www.hpcuserforum.com/",
+            "https://www.hpcuserforum.com/presentations/",
+            "https://www.hpcuserforum.com/events/",
+            "https://www.hpcuserforum.com/agenda/",
+            "https://www.hpcuserforum.com/conference/",
+            "https://www.hpcuserforum.com/workshops/",
+            "https://www.hpcuserforum.com/tutorials/",
+            "https://www.hpcuserforum.com/2017/",
+            "https://www.hpcuserforum.com/2018/",
+            "https://www.hpcuserforum.com/2019/",
+            "https://www.hpcuserforum.com/2020/",
+            "https://www.hpcuserforum.com/2021/",
+            "https://www.hpcuserforum.com/2022/",
+            "https://www.hpcuserforum.com/2023/",
+            "https://www.hpcuserforum.com/2024/",
+            "https://www.hpcuserforum.com/2025/",
+            "https://www.hpcuserforum.com/2026/",
+            "https://www.hpcuserforum.com/category/presentations/",
+            "https://www.hpcuserforum.com/category/events/",
+            "https://www.hpcuserforum.com/wp-sitemap.xml",
+            "https://www.hpcuserforum.com/sitemap_index.xml",
+        ],
+        "cdx_domain": "www.hpcuserforum.com",
+    },
+    "hyperionresearch": {
+        "base": "https://hyperionresearch.com",
+        "start_urls": [
+            "https://hyperionresearch.com/",
+            "https://hyperionresearch.com/events/",
+            "https://hyperionresearch.com/resources/",
+            "https://hyperionresearch.com/reports/",
+            "https://hyperionresearch.com/research/",
+            "https://hyperionresearch.com/publications/",
+            "https://hyperionresearch.com/downloads/",
+            "https://hyperionresearch.com/presentations/",
+            "https://hyperionresearch.com/news/",
+            "https://hyperionresearch.com/wp-sitemap.xml",
+            "https://hyperionresearch.com/sitemap.xml",
+            "https://hyperionresearch.com/sitemap_index.xml",
+        ],
+        "cdx_domain": "hyperionresearch.com",
+    },
+}
 
 # WordPress uploads path pattern: /wp-content/uploads/YYYY/MM/filename
 _WP_UPLOAD_RE = re.compile(r"/wp-content/uploads/(\d{4})/(\d{2})/")
@@ -83,24 +108,25 @@ _WP_UPLOAD_RE = re.compile(r"/wp-content/uploads/(\d{4})/(\d{2})/")
 # ---------------------------------------------------------------------------
 
 _metrics = {
-    "pages":    0,
-    "queued":   0,
-    "files":    0,
-    "matched":  0,
-    "errors":   0,
-    "start":    None,
+    "pages":   0,
+    "queued":  0,
+    "files":   0,
+    "matched": 0,
+    "errors":  0,
+    "start":   None,
 }
 
-def _status_line(current_url=""):
+def _status_line(site_label, current_url=""):
     elapsed = time.time() - _metrics["start"]
     mins    = elapsed / 60
     rate    = _metrics["pages"] / mins if mins > 0 else 0
-    trunc   = current_url[-70:] if len(current_url) > 70 else current_url
+    trunc   = current_url[-60:] if len(current_url) > 60 else current_url
     line = (
-        f"\r  Pages:{_metrics['pages']:>5}  Queue:{_metrics['queued']:>4}  "
+        f"\r  [{site_label:<16}]  "
+        f"Pages:{_metrics['pages']:>5}  Queue:{_metrics['queued']:>4}  "
         f"Files:{_metrics['files']:>4}  Matched:{_metrics['matched']:>3}  "
         f"Errors:{_metrics['errors']:>3}  "
-        f"{rate:>5.1f} pg/min  {elapsed:>6.0f}s  {trunc:<70}"
+        f"{rate:>5.1f} pg/min  {elapsed:>5.0f}s  {trunc:<60}"
     )
     sys.stdout.write(line)
     sys.stdout.flush()
@@ -164,7 +190,6 @@ def year_from_url(url):
 
 
 def date_from_headers(r):
-    """Parse Last-Modified header into a datetime, or None."""
     lm = r.headers.get("Last-Modified")
     if lm:
         try:
@@ -187,9 +212,9 @@ def file_passes_date_filter(session, url, cutoff_year):
 
 
 def filter_by_date(session, file_urls, cutoff_year):
-    kept = set()
+    kept    = set()
     dropped = set()
-    total = len(file_urls)
+    total   = len(file_urls)
 
     print(f"\n[DATE FILTER] Keeping files from {cutoff_year} onwards ({total} to check) ...")
     for i, url in enumerate(sorted(file_urls), 1):
@@ -217,20 +242,20 @@ def filter_by_date(session, file_urls, cutoff_year):
 
 def wayback_cdx_urls(domain, extensions, cutoff_year=None, keyword=None, limit=10000):
     """Query Wayback CDX API for file URLs under domain."""
-    found = set()
+    found    = set()
     base_cdx = "https://web.archive.org/cdx/search/cdx"
-    params = {
-        "url": f"{domain}/wp-content/uploads/*",
-        "matchType": "prefix",
-        "output": "json",
-        "fl": "original,timestamp",
-        "collapse": "urlkey",
-        "limit": str(limit),
+    params   = {
+        "url":        f"{domain}/wp-content/uploads/*",
+        "matchType":  "prefix",
+        "output":     "json",
+        "fl":         "original,timestamp",
+        "collapse":   "urlkey",
+        "limit":      str(limit),
     }
     if cutoff_year:
         params["from"] = f"{cutoff_year}0101000000"
 
-    print("[CDX] Querying Wayback Machine for indexed files ...")
+    print(f"[CDX] Querying Wayback Machine for {domain} ...")
     try:
         r = requests.get(base_cdx, params=params, timeout=60)
         r.raise_for_status()
@@ -250,9 +275,9 @@ def wayback_cdx_urls(domain, extensions, cutoff_year=None, keyword=None, limit=1
                 continue
             found.add(url)
     except Exception as e:
-        print(f"  [CDX] Failed: {e}", file=sys.stderr)
+        print(f"  [CDX] Failed for {domain}: {e}", file=sys.stderr)
 
-    print(f"[CDX] Found {len(found)} file URLs in Wayback index.")
+    print(f"[CDX] {domain}: {len(found)} file URLs found.")
     return found
 
 
@@ -260,12 +285,10 @@ def wayback_cdx_urls(domain, extensions, cutoff_year=None, keyword=None, limit=1
 # Live site crawler
 # ---------------------------------------------------------------------------
 
-def extract_links(base_url, html, extensions):
-    soup = BeautifulSoup(html, "lxml")
+def extract_links(base_url, html, extensions, allowed_host):
+    soup       = BeautifulSoup(html, "lxml")
     page_links = set()
     file_links = set()
-    parsed_base = urlparse(base_url)
-    host = parsed_base.netloc
 
     for loc in soup.find_all("loc"):
         url = loc.get_text(strip=True)
@@ -274,16 +297,16 @@ def extract_links(base_url, html, extensions):
         ext = os.path.splitext(urlparse(url).path)[1].lower()
         if ext in extensions:
             file_links.add(url)
-        elif urlparse(url).netloc == host or ext == ".xml":
+        elif urlparse(url).netloc == allowed_host or ext == ".xml":
             page_links.add(url)
 
     for tag in soup.find_all("a", href=True):
         href = tag["href"].strip()
         if not href or href.startswith("mailto:") or href.startswith("javascript:"):
             continue
-        full = urljoin(base_url, href)
+        full   = urljoin(base_url, href)
         parsed = urlparse(full)
-        if parsed.netloc != host:
+        if parsed.netloc != allowed_host:
             continue
         ext = os.path.splitext(parsed.path)[1].lower()
         if ext in extensions:
@@ -294,26 +317,32 @@ def extract_links(base_url, html, extensions):
                 page_links.add(clean)
 
     ext_group = "|".join(re.escape(e) for e in extensions)
-    pattern = rf'https?://{re.escape(host)}/[^\s"\'<>]+(?:{ext_group})'
+    pattern   = rf'https?://{re.escape(allowed_host)}/[^\s"\'<>]+(?:{ext_group})'
     for m in re.finditer(pattern, html, re.I):
         file_links.add(m.group(0))
 
     return page_links, file_links
 
 
-def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=None):
-    visited   = set()
-    file_urls = set()
-    matched   = set()
-    queue     = deque(start_urls)
+def crawl_site(session, site_key, site_cfg, extensions, max_pages=1000, delay=0.4, keyword=None):
+    """Crawl a single site and return (all_file_urls, matched_file_urls)."""
+    allowed_host = urlparse(site_cfg["base"]).netloc
+    visited      = set()
+    file_urls    = set()
+    matched      = set()
+    queue        = deque(site_cfg["start_urls"])
 
-    _metrics["start"] = time.time()
-    _metrics["pages"] = _metrics["files"] = _metrics["matched"] = _metrics["errors"] = 0
-    _metrics["queued"] = len(queue)
+    _metrics["start"]   = time.time()
+    _metrics["pages"]   = 0
+    _metrics["queued"]  = len(queue)
+    _metrics["files"]   = 0
+    _metrics["matched"] = 0
+    _metrics["errors"]  = 0
 
-    print(f"[CRAWL] Starting (max {max_pages} pages, delay {delay}s) ...")
+    label = site_key
+    print(f"\n[CRAWL] {site_cfg['base']}  (max {max_pages} pages, delay {delay}s)")
     print(f"        Extensions: {', '.join(sorted(extensions))}"
-          + (f"  |  Keyword filter: '{keyword}'" if keyword else ""))
+          + (f"  |  Keyword: '{keyword}'" if keyword else ""))
     print()
 
     while queue and len(visited) < max_pages:
@@ -323,7 +352,7 @@ def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=No
         visited.add(url)
         _metrics["pages"]  = len(visited)
         _metrics["queued"] = len(queue)
-        _status_line(url)
+        _status_line(label, url)
 
         r = get(session, url)
         if r is None:
@@ -335,7 +364,7 @@ def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=No
             time.sleep(delay)
             continue
 
-        page_links, found = extract_links(url, r.text, extensions)
+        page_links, found = extract_links(url, r.text, extensions, allowed_host)
         new_files = found - file_urls
         file_urls.update(found)
         _metrics["files"] = len(file_urls)
@@ -347,7 +376,8 @@ def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=No
                 _newline()
                 fname = os.path.basename(urlparse(fu).path)
                 year  = year_from_url(fu) or "????"
-                print(f"  *** MATCH [{year}] {fname}")
+                src   = urlparse(fu).netloc
+                print(f"  *** MATCH [{year}] [{src}] {fname}")
                 print(f"            {fu}")
 
         for link in sorted(page_links):
@@ -359,8 +389,8 @@ def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=No
 
     _newline()
     elapsed = time.time() - _metrics["start"]
-    print(f"\n[CRAWL] Done in {elapsed:.0f}s — {len(visited)} pages, "
-          f"{len(file_urls)} files found, {len(matched)} matched.")
+    print(f"[CRAWL] {site_cfg['base']} done in {elapsed:.0f}s — "
+          f"{len(visited)} pages, {len(file_urls)} files, {len(matched)} matched.")
     return file_urls, matched
 
 
@@ -371,7 +401,7 @@ def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=No
 def download_all(session, file_urls, output_dir, delay=0.5):
     os.makedirs(output_dir, exist_ok=True)
     results = []
-    total = len(file_urls)
+    total   = len(file_urls)
 
     for i, url in enumerate(sorted(file_urls), 1):
         path = urlparse(url).path.lstrip("/")
@@ -416,10 +446,11 @@ def write_index(file_urls, output_dir, suffix=""):
     csv_path = os.path.join(output_dir, f"index{suffix}.csv")
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["#", "year", "filename", "url"])
+        w.writerow(["#", "year", "source", "filename", "url"])
         for i, url in enumerate(urls, 1):
-            year = year_from_url(url) or ""
-            w.writerow([i, year, os.path.basename(urlparse(url).path), url])
+            year   = year_from_url(url) or ""
+            source = urlparse(url).netloc
+            w.writerow([i, year, source, os.path.basename(urlparse(url).path), url])
 
     print(f"\nIndex saved:\n  {json_path}\n  {csv_path}")
     return json_path, csv_path
@@ -430,14 +461,16 @@ def write_index(file_urls, output_dir, suffix=""):
 # ---------------------------------------------------------------------------
 
 def main():
-    p = argparse.ArgumentParser(description="Crawl hpcuserforum.com and index/download files")
+    p = argparse.ArgumentParser(
+        description="Crawl hpcuserforum.com + hyperionresearch.com and index/download files"
+    )
     p.add_argument("--download", action="store_true", help="Download all matched files")
     p.add_argument("--output", default="D:\\crawler-hpc-user", metavar="DIR",
                    help="Output directory (default: D:\\crawler-hpc-user)")
     p.add_argument("--years", type=int, default=2,
                    help="Only keep files from the last N years (default: 2, use 0 for all)")
     p.add_argument("--max-pages", type=int, default=1000,
-                   help="Max pages to crawl (default: 1000)")
+                   help="Max pages to crawl per site (default: 1000)")
     p.add_argument("--delay", type=float, default=0.4,
                    help="Seconds between requests (default: 0.4)")
     p.add_argument("--attendee-list", action="store_true",
@@ -448,6 +481,9 @@ def main():
                    help="Skip live crawl; use only Wayback Machine CDX")
     p.add_argument("--no-wayback", action="store_true",
                    help="Skip Wayback Machine CDX; only do live crawl")
+    p.add_argument("--sites", nargs="+", choices=list(SITES.keys()),
+                   default=list(SITES.keys()),
+                   help="Which sites to crawl (default: all)")
     args = p.parse_args()
 
     if args.attendee_list:
@@ -460,38 +496,43 @@ def main():
         extensions = ALL_EXTENSIONS
         keyword    = None
 
-    session   = make_session()
-    all_files = set()
-    matched   = set()
+    session    = make_session()
+    all_files  = set()
+    matched    = set()
 
     cutoff_year = None
     if args.years > 0:
         cutoff_year = datetime.date.today().year - args.years + 1
-        print(f"[INFO] Date filter: files from {cutoff_year} onwards (last {args.years} years)")
+        print(f"[INFO] Date filter  : files from {cutoff_year} onwards (last {args.years} years)")
 
     if args.attendee_list:
-        print("[INFO] Mode: attendee-list  (PDF + XLS/XLSX, filename contains 'attendee')")
+        print("[INFO] Mode         : attendee-list  (PDF + XLS/XLSX, filename contains 'attendee')")
 
-    # 1. Wayback Machine CDX
+    active_sites = {k: SITES[k] for k in args.sites}
+    print(f"[INFO] Sites        : {', '.join(active_sites.keys())}")
+    print()
+
+    # 1. Wayback Machine CDX (one query per site)
     if not args.no_wayback:
-        cdx_files = wayback_cdx_urls(
-            "hpcuserforum.com", extensions,
-            cutoff_year=cutoff_year, keyword=keyword,
-        )
-        all_files.update(cdx_files)
-        if keyword:
-            matched.update(cdx_files)
+        for site_key, site_cfg in active_sites.items():
+            cdx_files = wayback_cdx_urls(
+                site_cfg["cdx_domain"], extensions,
+                cutoff_year=cutoff_year, keyword=keyword,
+            )
+            all_files.update(cdx_files)
+            if keyword:
+                matched.update(cdx_files)
 
-    # 2. Live crawl
+    # 2. Live crawl (one crawl per site)
     if not args.wayback_only:
-        live_files, live_matched = crawl(
-            session, START_URLS, extensions,
-            max_pages=args.max_pages, delay=args.delay, keyword=keyword,
-        )
-        all_files.update(live_files)
-        matched.update(live_matched)
+        for site_key, site_cfg in active_sites.items():
+            live_files, live_matched = crawl_site(
+                session, site_key, site_cfg, extensions,
+                max_pages=args.max_pages, delay=args.delay, keyword=keyword,
+            )
+            all_files.update(live_files)
+            matched.update(live_matched)
 
-    # Use matched set when filtering is active, else all files
     result_files = matched if keyword else all_files
 
     if not result_files:
@@ -507,14 +548,15 @@ def main():
         sys.exit(0)
 
     # Summary
-    label = "ATTENDEE FILES" if keyword else "FILES FOUND"
+    label      = "ATTENDEE FILES" if keyword else "FILES FOUND"
     year_label = f"from {cutoff_year} onwards" if cutoff_year else "all years"
     print(f"\n{'='*60}")
     print(f"{label} ({year_label}): {len(result_files)}")
     print(f"{'='*60}")
     for i, url in enumerate(sorted(result_files), 1):
-        year = year_from_url(url) or "????"
-        print(f"  {i:>4}. [{year}] {os.path.basename(urlparse(url).path)}")
+        year   = year_from_url(url) or "????"
+        source = urlparse(url).netloc
+        print(f"  {i:>4}. [{year}] [{source}] {os.path.basename(urlparse(url).path)}")
         print(f"        {url}")
 
     suffix = "_attendee" if keyword else ""
