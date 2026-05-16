@@ -15,11 +15,11 @@ echo Installing/updating dependencies...
 pip install -r "%~dp0requirements.txt" --quiet
 
 echo.
-echo Downloading PDFs from last 2 years to: %~dp0pdfs\
+echo Downloading attendee list files (PDF + XLS, last 2 years) to: %~dp0pdfs\
 echo.
 
-python "%~dp0crawl_hpcuserforum.py" --download --pdfs-only --years 2 --output "%~dp0pdfs"
+python "%~dp0crawl_hpcuserforum.py" --download --attendee-list --years 2 --output "%~dp0pdfs"
 
 echo.
-echo Done! Check pdfs\ and sync.log for results.
+echo Done! Check pdfs\ for results.
 pause

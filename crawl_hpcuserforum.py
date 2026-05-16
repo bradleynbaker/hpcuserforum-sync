@@ -11,6 +11,7 @@ Usage:
   python crawl_hpcuserforum.py --download --years 3     # last 3 years
   python crawl_hpcuserforum.py --download --years 0     # all years (no filter)
   python crawl_hpcuserforum.py --download --output "D:\\crawler-hpc-user"
+  python crawl_hpcuserforum.py --attendee-list          # PDFs + XLS with "attendee" in name
   python crawl_hpcuserforum.py --pdfs-only              # PDFs only
   python crawl_hpcuserforum.py --wayback-only           # Wayback Machine CDX only
 """
@@ -46,8 +47,9 @@ HEADERS = {
     "Referer": "https://www.hpcuserforum.com/",
 }
 
-ALL_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx", ".zip"}
-PDF_ONLY = {".pdf"}
+ALL_EXTENSIONS      = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx", ".zip"}
+PDF_ONLY            = {".pdf"}
+ATTENDEE_EXTENSIONS = {".pdf", ".xls", ".xlsx"}
 
 START_URLS = [
     BASE_URL + "/",
@@ -76,6 +78,37 @@ START_URLS = [
 # WordPress uploads path pattern: /wp-content/uploads/YYYY/MM/filename
 _WP_UPLOAD_RE = re.compile(r"/wp-content/uploads/(\d{4})/(\d{2})/")
 
+# ---------------------------------------------------------------------------
+# Live metrics / status line
+# ---------------------------------------------------------------------------
+
+_metrics = {
+    "pages":    0,
+    "queued":   0,
+    "files":    0,
+    "matched":  0,
+    "errors":   0,
+    "start":    None,
+}
+
+def _status_line(current_url=""):
+    elapsed = time.time() - _metrics["start"]
+    mins    = elapsed / 60
+    rate    = _metrics["pages"] / mins if mins > 0 else 0
+    trunc   = current_url[-70:] if len(current_url) > 70 else current_url
+    line = (
+        f"\r  Pages:{_metrics['pages']:>5}  Queue:{_metrics['queued']:>4}  "
+        f"Files:{_metrics['files']:>4}  Matched:{_metrics['matched']:>3}  "
+        f"Errors:{_metrics['errors']:>3}  "
+        f"{rate:>5.1f} pg/min  {elapsed:>6.0f}s  {trunc:<70}"
+    )
+    sys.stdout.write(line)
+    sys.stdout.flush()
+
+def _newline():
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
 
 # ---------------------------------------------------------------------------
 # HTTP helpers
@@ -93,7 +126,8 @@ def get(session, url, timeout=30, stream=False):
         r.raise_for_status()
         return r
     except requests.RequestException as e:
-        print(f"  [WARN] {url}: {e}", file=sys.stderr)
+        _metrics["errors"] += 1
+        print(f"\n  [WARN] {url}: {e}", file=sys.stderr)
         return None
 
 
@@ -104,6 +138,17 @@ def head(session, url, timeout=15):
         return r
     except requests.RequestException:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Attendee-list filter
+# ---------------------------------------------------------------------------
+
+_ATTENDEE_RE = re.compile(r"attendee", re.IGNORECASE)
+
+def is_attendee_file(url):
+    filename = os.path.basename(urlparse(url).path)
+    return bool(_ATTENDEE_RE.search(filename))
 
 
 # ---------------------------------------------------------------------------
@@ -130,27 +175,18 @@ def date_from_headers(r):
 
 
 def file_passes_date_filter(session, url, cutoff_year):
-    """
-    Return True if the file is from cutoff_year or later.
-    First tries the URL path (fast), then falls back to a HEAD request.
-    """
     year = year_from_url(url)
     if year is not None:
         return year >= cutoff_year
-
-    # Fall back to HEAD request for files not following WP upload path
     r = head(session, url)
     if r:
         dt = date_from_headers(r)
         if dt:
             return dt.year >= cutoff_year
-
-    # Can't determine date — include it to be safe
     return True
 
 
 def filter_by_date(session, file_urls, cutoff_year):
-    """Filter file_urls to those from cutoff_year or later."""
     kept = set()
     dropped = set()
     total = len(file_urls)
@@ -159,14 +195,12 @@ def filter_by_date(session, file_urls, cutoff_year):
     for i, url in enumerate(sorted(file_urls), 1):
         year = year_from_url(url)
         if year is not None:
-            # Fast path — no network request needed
             if year >= cutoff_year:
                 kept.add(url)
             else:
                 dropped.add(url)
                 print(f"  [DROP] {year} {os.path.basename(urlparse(url).path)}")
         else:
-            # Slow path — HEAD request
             print(f"  [CHECK {i}/{total}] {os.path.basename(urlparse(url).path)}")
             if file_passes_date_filter(session, url, cutoff_year):
                 kept.add(url)
@@ -181,7 +215,7 @@ def filter_by_date(session, file_urls, cutoff_year):
 # Wayback Machine CDX
 # ---------------------------------------------------------------------------
 
-def wayback_cdx_urls(domain, extensions, cutoff_year=None, limit=10000):
+def wayback_cdx_urls(domain, extensions, cutoff_year=None, keyword=None, limit=10000):
     """Query Wayback CDX API for file URLs under domain."""
     found = set()
     base_cdx = "https://web.archive.org/cdx/search/cdx"
@@ -212,6 +246,8 @@ def wayback_cdx_urls(domain, extensions, cutoff_year=None, limit=10000):
                         continue
                 except Exception:
                     pass
+            if keyword and not re.search(keyword, os.path.basename(urlparse(url).path), re.IGNORECASE):
+                continue
             found.add(url)
     except Exception as e:
         print(f"  [CDX] Failed: {e}", file=sys.stderr)
@@ -231,7 +267,6 @@ def extract_links(base_url, html, extensions):
     parsed_base = urlparse(base_url)
     host = parsed_base.netloc
 
-    # Handle XML sitemaps
     for loc in soup.find_all("loc"):
         url = loc.get_text(strip=True)
         if not url:
@@ -258,7 +293,6 @@ def extract_links(base_url, html, extensions):
             if clean:
                 page_links.add(clean)
 
-    # Bare URLs in raw HTML / JS / data attributes
     ext_group = "|".join(re.escape(e) for e in extensions)
     pattern = rf'https?://{re.escape(host)}/[^\s"\'<>]+(?:{ext_group})'
     for m in re.finditer(pattern, html, re.I):
@@ -267,37 +301,67 @@ def extract_links(base_url, html, extensions):
     return page_links, file_links
 
 
-def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4):
-    visited = set()
+def crawl(session, start_urls, extensions, max_pages=1000, delay=0.4, keyword=None):
+    visited   = set()
     file_urls = set()
-    queue = deque(start_urls)
+    matched   = set()
+    queue     = deque(start_urls)
+
+    _metrics["start"] = time.time()
+    _metrics["pages"] = _metrics["files"] = _metrics["matched"] = _metrics["errors"] = 0
+    _metrics["queued"] = len(queue)
+
+    print(f"[CRAWL] Starting (max {max_pages} pages, delay {delay}s) ...")
+    print(f"        Extensions: {', '.join(sorted(extensions))}"
+          + (f"  |  Keyword filter: '{keyword}'" if keyword else ""))
+    print()
 
     while queue and len(visited) < max_pages:
         url = queue.popleft()
         if url in visited:
             continue
         visited.add(url)
+        _metrics["pages"]  = len(visited)
+        _metrics["queued"] = len(queue)
+        _status_line(url)
 
-        print(f"  [{len(visited):>4}/{max_pages}] {url}")
         r = get(session, url)
         if r is None:
+            time.sleep(delay)
             continue
 
         ct = r.headers.get("Content-Type", "")
         if "html" not in ct and "xml" not in ct:
+            time.sleep(delay)
             continue
 
         page_links, found = extract_links(url, r.text, extensions)
+        new_files = found - file_urls
         file_urls.update(found)
+        _metrics["files"] = len(file_urls)
+
+        for fu in new_files:
+            if keyword is None or re.search(keyword, os.path.basename(urlparse(fu).path), re.IGNORECASE):
+                matched.add(fu)
+                _metrics["matched"] = len(matched)
+                _newline()
+                fname = os.path.basename(urlparse(fu).path)
+                year  = year_from_url(fu) or "????"
+                print(f"  *** MATCH [{year}] {fname}")
+                print(f"            {fu}")
 
         for link in sorted(page_links):
             if link not in visited:
                 queue.append(link)
+        _metrics["queued"] = len(queue)
 
         time.sleep(delay)
 
-    print(f"\nCrawled {len(visited)} pages — {len(file_urls)} files found.")
-    return file_urls
+    _newline()
+    elapsed = time.time() - _metrics["start"]
+    print(f"\n[CRAWL] Done in {elapsed:.0f}s — {len(visited)} pages, "
+          f"{len(file_urls)} files found, {len(matched)} matched.")
+    return file_urls, matched
 
 
 # ---------------------------------------------------------------------------
@@ -341,15 +405,15 @@ def download_all(session, file_urls, output_dir, delay=0.5):
 # Index output
 # ---------------------------------------------------------------------------
 
-def write_index(file_urls, output_dir):
+def write_index(file_urls, output_dir, suffix=""):
     os.makedirs(output_dir, exist_ok=True)
     urls = sorted(file_urls)
 
-    json_path = os.path.join(output_dir, "index.json")
+    json_path = os.path.join(output_dir, f"index{suffix}.json")
     with open(json_path, "w") as f:
         json.dump(urls, f, indent=2)
 
-    csv_path = os.path.join(output_dir, "index.csv")
+    csv_path = os.path.join(output_dir, f"index{suffix}.csv")
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["#", "year", "filename", "url"])
@@ -367,7 +431,7 @@ def write_index(file_urls, output_dir):
 
 def main():
     p = argparse.ArgumentParser(description="Crawl hpcuserforum.com and index/download files")
-    p.add_argument("--download", action="store_true", help="Download all found files")
+    p.add_argument("--download", action="store_true", help="Download all matched files")
     p.add_argument("--output", default="D:\\crawler-hpc-user", metavar="DIR",
                    help="Output directory (default: D:\\crawler-hpc-user)")
     p.add_argument("--years", type=int, default=2,
@@ -376,6 +440,8 @@ def main():
                    help="Max pages to crawl (default: 1000)")
     p.add_argument("--delay", type=float, default=0.4,
                    help="Seconds between requests (default: 0.4)")
+    p.add_argument("--attendee-list", action="store_true",
+                   help="Collect only PDFs/XLS files whose name contains 'attendee'")
     p.add_argument("--pdfs-only", action="store_true",
                    help="Only collect PDF files")
     p.add_argument("--wayback-only", action="store_true",
@@ -384,59 +450,85 @@ def main():
                    help="Skip Wayback Machine CDX; only do live crawl")
     args = p.parse_args()
 
-    extensions = PDF_ONLY if args.pdfs_only else ALL_EXTENSIONS
-    session = make_session()
+    if args.attendee_list:
+        extensions = ATTENDEE_EXTENSIONS
+        keyword    = "attendee"
+    elif args.pdfs_only:
+        extensions = PDF_ONLY
+        keyword    = None
+    else:
+        extensions = ALL_EXTENSIONS
+        keyword    = None
+
+    session   = make_session()
     all_files = set()
+    matched   = set()
 
     cutoff_year = None
     if args.years > 0:
         cutoff_year = datetime.date.today().year - args.years + 1
         print(f"[INFO] Date filter: files from {cutoff_year} onwards (last {args.years} years)")
 
+    if args.attendee_list:
+        print("[INFO] Mode: attendee-list  (PDF + XLS/XLSX, filename contains 'attendee')")
+
     # 1. Wayback Machine CDX
     if not args.no_wayback:
-        cdx_files = wayback_cdx_urls("hpcuserforum.com", extensions, cutoff_year=cutoff_year)
+        cdx_files = wayback_cdx_urls(
+            "hpcuserforum.com", extensions,
+            cutoff_year=cutoff_year, keyword=keyword,
+        )
         all_files.update(cdx_files)
+        if keyword:
+            matched.update(cdx_files)
 
     # 2. Live crawl
     if not args.wayback_only:
-        print(f"\n[CRAWL] Starting live crawl (max {args.max_pages} pages) ...")
-        live_files = crawl(session, START_URLS, extensions,
-                           max_pages=args.max_pages, delay=args.delay)
+        live_files, live_matched = crawl(
+            session, START_URLS, extensions,
+            max_pages=args.max_pages, delay=args.delay, keyword=keyword,
+        )
         all_files.update(live_files)
+        matched.update(live_matched)
 
-    if not all_files:
+    # Use matched set when filtering is active, else all files
+    result_files = matched if keyword else all_files
+
+    if not result_files:
         print("\nNo files found.")
         sys.exit(0)
 
-    # 3. Apply date filter (for files not already filtered by CDX timestamp)
+    # 3. Apply date filter
     if cutoff_year:
-        all_files = filter_by_date(session, all_files, cutoff_year)
+        result_files = filter_by_date(session, result_files, cutoff_year)
 
-    if not all_files:
+    if not result_files:
         print(f"\nNo files found from {cutoff_year} onwards. Try --years 5 or --years 0.")
         sys.exit(0)
 
-    # Print summary
+    # Summary
+    label = "ATTENDEE FILES" if keyword else "FILES FOUND"
+    year_label = f"from {cutoff_year} onwards" if cutoff_year else "all years"
     print(f"\n{'='*60}")
-    print(f"FILES FOUND (from {cutoff_year} onwards): {len(all_files)}")
+    print(f"{label} ({year_label}): {len(result_files)}")
     print(f"{'='*60}")
-    for i, url in enumerate(sorted(all_files), 1):
+    for i, url in enumerate(sorted(result_files), 1):
         year = year_from_url(url) or "????"
         print(f"  {i:>4}. [{year}] {os.path.basename(urlparse(url).path)}")
         print(f"        {url}")
 
-    write_index(all_files, args.output)
+    suffix = "_attendee" if keyword else ""
+    write_index(result_files, args.output, suffix=suffix)
 
     if args.download:
-        print(f"\n[DOWNLOAD] Fetching {len(all_files)} files into: {args.output}")
-        results = download_all(session, all_files, args.output, delay=args.delay)
-        ok = sum(1 for r in results if r["status"] == "ok")
+        print(f"\n[DOWNLOAD] Fetching {len(result_files)} files into: {args.output}")
+        results = download_all(session, result_files, args.output, delay=args.delay)
+        ok      = sum(1 for r in results if r["status"] == "ok")
         skipped = sum(1 for r in results if r["status"] == "skipped")
-        errors = sum(1 for r in results if r["status"] == "error")
+        errors  = sum(1 for r in results if r["status"] == "error")
         print(f"\nDone: {ok} downloaded, {skipped} skipped, {errors} errors.")
     else:
-        print(f"\nRun with --download to fetch all {len(all_files)} files.")
+        print(f"\nRun with --download to fetch all {len(result_files)} files.")
 
 
 if __name__ == "__main__":
