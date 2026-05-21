@@ -15,6 +15,8 @@ Usage:
   python crawl_hpcuserforum.py --attendee-list          # PDFs + XLS with "attendee" in name
   python crawl_hpcuserforum.py --pdfs-only              # PDFs only
   python crawl_hpcuserforum.py --wayback-only           # Wayback Machine CDX only
+  python crawl_hpcuserforum.py --scrape-page https://www.hpcuserforum.com/may-2026-hpc-ai-user-forum-presentations/
+  python crawl_hpcuserforum.py --scrape-page <URL> --download   # scrape + download
 """
 
 import argparse
@@ -77,6 +79,8 @@ SITES = {
             "https://www.hpcuserforum.com/category/events/",
             "https://www.hpcuserforum.com/wp-sitemap.xml",
             "https://www.hpcuserforum.com/sitemap_index.xml",
+            # Event-specific presentation pages
+            "https://www.hpcuserforum.com/may-2026-hpc-ai-user-forum-presentations/",
         ],
         "cdx_domain": "www.hpcuserforum.com",
     },
@@ -457,6 +461,98 @@ def write_index(file_urls, output_dir, suffix=""):
 
 
 # ---------------------------------------------------------------------------
+# Single-page presentation scraper (title + URL pairs)
+# ---------------------------------------------------------------------------
+
+_GENERIC_LINK_TEXT = {
+    "download", "click here", "here", "pdf", "pptx", "ppt", "file",
+    "link", "get", "view", "open", "slides", "presentation",
+}
+
+
+def _best_title(a_tag, full_url):
+    """Return the most descriptive title for a file <a> tag."""
+    text = a_tag.get_text(strip=True)
+
+    # Use link text if it looks meaningful
+    if text and text.lower() not in _GENERIC_LINK_TEXT and len(text) > 4:
+        return text
+
+    # Walk up to the nearest li/p/div and use its full text minus generic bits
+    for parent in (a_tag.parent, getattr(a_tag.parent, "parent", None)):
+        if parent is None:
+            continue
+        parent_text = parent.get_text(separator=" ", strip=True)
+        # Strip the raw link text out to get surrounding context
+        cleaned = parent_text.replace(text, "").strip(" |-–•·")
+        if cleaned and len(cleaned) > 4:
+            return cleaned
+
+    # Last resort: filename without extension
+    return os.path.splitext(os.path.basename(urlparse(full_url).path))[0]
+
+
+def scrape_presentations_page(session, url, extensions=None):
+    """
+    Fetch a single presentations page and return a list of dicts:
+      [{"title": "...", "filename": "...", "url": "..."}, ...]
+
+    Titles are taken from link text or surrounding element text; they are NOT
+    just raw filenames.
+    """
+    if extensions is None:
+        extensions = ALL_EXTENSIONS
+
+    print(f"[SCRAPE] Fetching {url}")
+    r = get(session, url)
+    if r is None:
+        print("[SCRAPE] Failed to fetch page.", file=sys.stderr)
+        return []
+
+    soup = BeautifulSoup(r.text, "lxml")
+    results = []
+    seen = set()
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if not href or href.startswith(("mailto:", "javascript:")):
+            continue
+        full = urljoin(url, href)
+        ext = os.path.splitext(urlparse(full).path)[1].lower()
+        if ext not in extensions:
+            continue
+        if full in seen:
+            continue
+        seen.add(full)
+
+        title = _best_title(a, full)
+        filename = os.path.basename(urlparse(full).path)
+        results.append({"title": title, "filename": filename, "url": full})
+
+    print(f"[SCRAPE] Found {len(results)} file links.")
+    return results
+
+
+def write_titled_index(items, output_dir, suffix="_presentations"):
+    """Write a JSON + CSV index that includes presentation titles."""
+    os.makedirs(output_dir, exist_ok=True)
+
+    json_path = os.path.join(output_dir, f"index{suffix}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=2, ensure_ascii=False)
+
+    csv_path = os.path.join(output_dir, f"index{suffix}.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["#", "title", "filename", "url"])
+        for i, item in enumerate(items, 1):
+            w.writerow([i, item["title"], item["filename"], item["url"]])
+
+    print(f"\nTitled index saved:\n  {json_path}\n  {csv_path}")
+    return json_path, csv_path
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -484,6 +580,9 @@ def main():
     p.add_argument("--sites", nargs="+", choices=list(SITES.keys()),
                    default=list(SITES.keys()),
                    help="Which sites to crawl (default: all)")
+    p.add_argument("--scrape-page", metavar="URL",
+                   help="Scrape a single presentations page for titled file links "
+                        "(e.g. https://www.hpcuserforum.com/may-2026-hpc-ai-user-forum-presentations/)")
     args = p.parse_args()
 
     if args.attendee_list:
@@ -497,6 +596,38 @@ def main():
         keyword    = None
 
     session    = make_session()
+
+    # --scrape-page: targeted single-page extraction with titles
+    if args.scrape_page:
+        items = scrape_presentations_page(session, args.scrape_page, extensions)
+        if not items:
+            print("\nNo file links found on that page.")
+            sys.exit(1)
+
+        print(f"\n{'='*60}")
+        print(f"PRESENTATIONS FOUND: {len(items)}")
+        print(f"{'='*60}")
+        for i, item in enumerate(items, 1):
+            print(f"  {i:>4}. {item['title']}")
+            print(f"        {item['url']}")
+
+        # Derive a slug from the URL for the output suffix
+        slug = urlparse(args.scrape_page).path.strip("/").split("/")[-1]
+        slug = re.sub(r"[^a-z0-9]+", "-", slug.lower())[:40]
+        write_titled_index(items, args.output, suffix=f"_{slug}")
+
+        if args.download:
+            print(f"\n[DOWNLOAD] Fetching {len(items)} files into: {args.output}")
+            results = download_all(session, {i["url"] for i in items}, args.output,
+                                   delay=args.delay)
+            ok      = sum(1 for r in results if r["status"] == "ok")
+            skipped = sum(1 for r in results if r["status"] == "skipped")
+            errors  = sum(1 for r in results if r["status"] == "error")
+            print(f"\nDone: {ok} downloaded, {skipped} skipped, {errors} errors.")
+        else:
+            print(f"\nRun with --download to fetch all {len(items)} files.")
+        sys.exit(0)
+
     all_files  = set()
     matched    = set()
 
