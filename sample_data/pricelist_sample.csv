@@ -1,0 +1,15 @@
+sku,description,manufacturer,unit_price,category
+PE-R760XA-GPU,"PowerEdge R760xa GPU server, 2x Intel Xeon Platinum 8568Y+, 1TB DDR5",Dell,42500.00,compute
+PE-R760-CPU,"PowerEdge R760 compute node, 2x Intel Xeon Platinum 8480+, 512GB DDR5",Dell,28750.00,compute
+PE-R660-MGMT,"PowerEdge R660 management/head node, 2x Xeon Gold 6442Y, 256GB",Dell,16400.00,management
+NV-H100-SXM-80,"NVIDIA H100 SXM5 80GB Tensor Core GPU",NVIDIA,31000.00,gpu
+NV-QM9700-IB,"NVIDIA Quantum-2 QM9700 64-port NDR 400Gb/s InfiniBand switch",NVIDIA,58900.00,network
+NV-SN4600-ETH,"NVIDIA Spectrum SN4600 64-port 100GbE management switch",NVIDIA,24300.00,network
+NV-CX7-NDR-HCA,"NVIDIA ConnectX-7 NDR 400Gb/s InfiniBand HCA",NVIDIA,2150.00,network
+DDN-ES400NVX2,"DDN ES400NVX2 all-NVMe parallel filesystem appliance, 480TB usable",DDN,168000.00,storage
+DDN-SS9012-HDD,"DDN SS9012 hybrid expansion enclosure, 1.2PB raw",DDN,92000.00,storage
+APC-AR3300-RACK,"APC NetShelter SX 42U 750mm enterprise rack enclosure",APC,1850.00,rack
+APC-PDU-AP8941,"APC Rack PDU 2G, metered, 0U, 17.3kW, 3-phase",APC,1290.00,rack
+BCM-CLUSTER-MGR,"NVIDIA Base Command Manager cluster software, per-node annual subscription",NVIDIA,950.00,software
+SLURM-PRO-SUP,"Slurm workload manager Pro support, per-cluster annual",SchedMD,18500.00,software
+RH-EL-HPC-5YR,"Red Hat Enterprise Linux for HPC Compute Node, 5-year subscription",Red Hat,1100.00,software

@@ -1,3 +1,11 @@
 requests
 beautifulsoup4
 lxml
+
+# proposal_generator
+reportlab
+openpyxl
+
+# optional: AI-written executive summary & engineer bio (falls back to
+# templates when absent or ANTHROPIC_API_KEY is unset)
+anthropic

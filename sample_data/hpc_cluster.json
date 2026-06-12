@@ -1,0 +1,81 @@
+{
+  "solution_name": "Mission HPC Cluster — Phase 1 (Compute, GPU, Storage)",
+  "proposal_number": "CTG-2026-0612-HPC",
+  "default_discount_pct": 18,
+  "valid_days": 30,
+  "pricelist_source": "",
+  "include_services_line": true,
+  "meeting_notes": "Customer needs a GPU-accelerated cluster for AI/ML and CFD workloads, must be deployable in an existing accredited data center, and wants a single named engineer accountable for installation and acceptance testing. Procurement must run through an existing GWAC to avoid a new full-and-open competition.",
+
+  "customer": {
+    "name": "Dr. Alicia Romero",
+    "title": "Director, Computational Science Division",
+    "agency": "U.S. Department of Energy",
+    "org_unit": "Office of Science / Advanced Scientific Computing Research (ASCR)",
+    "email": "a.romero@science.doe.gov",
+    "phone": "(202) 555-0143",
+    "address": "1000 Independence Ave SW, Washington, DC 20585"
+  },
+
+  "company": {
+    "name": "CTG Federal",
+    "tagline": "Mission-Focused HPC & IT Solutions for Government",
+    "rep_name": "Brad Baker",
+    "rep_title": "Account Executive, HPC",
+    "rep_email": "brad@ctgfederal.com",
+    "rep_phone": "(703) 555-0199",
+    "cage_code": "8XYZ1",
+    "uei": "ABC123DEF456",
+    "website": "www.ctgfederal.com"
+  },
+
+  "engineer": {
+    "name": "Marcus Whitfield",
+    "title": "Principal HPC Solutions Engineer",
+    "years_experience": 14,
+    "clearance": "Active Top Secret/SCI",
+    "certifications": [
+      "NVIDIA Certified Professional — AI Infrastructure",
+      "Red Hat Certified Engineer (RHCE)",
+      "Slurm Certified Administrator",
+      "CompTIA Security+ (DoD 8570 IAT II)"
+    ],
+    "specialties": [
+      "GPU cluster bring-up and InfiniBand fabric tuning",
+      "Parallel filesystem deployment (Lustre/GPFS)",
+      "Slurm scheduler configuration and benchmarking",
+      "Accreditation support (RMF/ATO)"
+    ],
+    "summary": "Has delivered more than 30 production HPC clusters across DOE, DoD, and federal research labs.",
+    "day_rate": 2400.0,
+    "estimated_days": 12
+  },
+
+  "contract": {
+    "name": "NASA SEWP V (Group A)",
+    "number": "NNG15SC07B",
+    "holder": "CTG Federal",
+    "ceiling": "$20B government-wide ceiling",
+    "naics": "541519",
+    "period_of_performance": "Through April 2030 (with options)",
+    "url": "https://www.sewp.nasa.gov",
+    "notes": "SEWP V is a NASA-administered Government-Wide Acquisition Contract (GWAC) available to all federal agencies. Ordering through SEWP V satisfies competition requirements at the contract level, enabling rapid, compliant procurement of the configuration above without a separate full-and-open competition."
+  },
+
+  "line_items": [
+    { "sku": "PE-R760XA-GPU",   "qty": 8,  "category": "compute" },
+    { "sku": "NV-H100-SXM-80",  "qty": 32, "category": "gpu" },
+    { "sku": "PE-R760-CPU",     "qty": 16, "category": "compute" },
+    { "sku": "PE-R660-MGMT",    "qty": 2,  "category": "management" },
+    { "sku": "NV-QM9700-IB",    "qty": 2,  "category": "network" },
+    { "sku": "NV-SN4600-ETH",   "qty": 1,  "category": "network" },
+    { "sku": "NV-CX7-NDR-HCA",  "qty": 26, "category": "network" },
+    { "sku": "DDN-ES400NVX2",   "qty": 1,  "category": "storage" },
+    { "sku": "DDN-SS9012-HDD",  "qty": 1,  "category": "storage" },
+    { "sku": "APC-AR3300-RACK", "qty": 3,  "category": "rack" },
+    { "sku": "APC-PDU-AP8941",  "qty": 6,  "category": "rack" },
+    { "sku": "BCM-CLUSTER-MGR", "qty": 26, "category": "software" },
+    { "sku": "SLURM-PRO-SUP",   "qty": 1,  "category": "software" },
+    { "sku": "RH-EL-HPC-5YR",   "qty": 26, "category": "software" }
+  ]
+}

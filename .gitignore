@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated proposal artifacts
+proposal.pdf
+proposal.vsdx
+*.proposal.pdf
+
+# Crawler output
+pdfs/
+sync.log
+index*.json
+index*.csv
