@@ -1,3 +1,11 @@
+# HPC User Forum crawler
 requests
 beautifulsoup4
 lxml
+
+# RFI analyzer — optional, only needed for `rfi_analyzer.py --llm`
+anthropic
+
+# System dependencies for PDF OCR (install via your package manager, not pip):
+#   Debian/Ubuntu:  apt-get install poppler-utils tesseract-ocr
+#   macOS (brew):   brew install poppler tesseract
