@@ -11,6 +11,7 @@ Two pieces:
 |------|--------------|
 | `pdf_ocr.py` | Reusable PDF text extraction. Uses the embedded text layer when present, falls back to OCR (Tesseract) for scanned documents. |
 | `rfi_analyzer.py` | Runs the OCR, then analyzes the RFI — heuristically (always) and with Claude (optionally). Emits JSON + a Markdown brief. |
+| `ocr_server.py` | Optional HTTP service (stdlib only) exposing the OCR + analysis over `/ocr` and `/analyze`. |
 
 ## Install
 
@@ -56,6 +57,33 @@ python pdf_ocr.py document.pdf --force-ocr --dpi 400
 from pdf_ocr import extract_text
 result = extract_text("document.pdf")   # OcrResult(text, method, pages, ...)
 ```
+
+## HTTP server
+
+For a running service (e.g. to OCR/analyze PDFs from another app), start the
+stdlib server — no extra dependencies:
+
+```bash
+python ocr_server.py                      # 127.0.0.1:8000
+python ocr_server.py --host 0.0.0.0 --port 9000
+```
+
+| Route | Method | Returns |
+|-------|--------|---------|
+| `/health` | GET | Status + which OCR binaries are present |
+| `/ocr` | POST | Extracted text (text layer or OCR fallback) |
+| `/analyze` | POST | Full RFI analysis + a Markdown brief |
+
+Send the PDF as the **raw request body**:
+
+```bash
+curl -s --data-binary @MAITSRFI.pdf \
+     -H 'Content-Type: application/pdf' \
+     http://127.0.0.1:8000/analyze | jq .
+```
+
+Query params — `/ocr`: `force_ocr=1`, `dpi=300`, `lang=eng`.
+`/analyze`: also `llm=1`, `include_text=1`.
 
 ## How extraction works
 
