@@ -85,6 +85,26 @@ curl -s --data-binary @MAITSRFI.pdf \
 Query params — `/ocr`: `force_ocr=1`, `dpi=300`, `lang=eng`.
 `/analyze`: also `llm=1`, `include_text=1`.
 
+### Run it as a reachable service (Docker)
+
+The bundled `Dockerfile` installs poppler + tesseract for you and binds
+`0.0.0.0:8000`, so the running container is reachable on your host:
+
+```bash
+docker build -t rfi-ocr .
+docker run --rm -p 8000:8000 rfi-ocr
+# optional: enable the --llm path
+docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY=sk-ant-... rfi-ocr
+
+curl -s --data-binary @MAITSRFI.pdf \
+     -H 'Content-Type: application/pdf' \
+     http://localhost:8000/analyze | jq .
+```
+
+> Running `ocr_server.py` bare binds to `127.0.0.1` (local only). Use
+> `--host 0.0.0.0` (as the Docker image does) to accept connections from
+> outside the machine/container.
+
 ## How extraction works
 
 1. **Text layer first.** `pdftotext -layout` is fast and exact. If the PDF
