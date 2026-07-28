@@ -1,0 +1,55 @@
+name: Bug report
+description: Something extracted wrong, or crashed
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Redact anything sensitive before posting.** Never paste a real
+        solicitation — a short excerpt showing the phrasing is enough.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did the tool return, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: input
+    attributes:
+      label: Input that triggers it
+      description: >
+        The smallest snippet that reproduces it — a single sentence with the
+        phrasing that failed is ideal.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: path
+    attributes:
+      label: Which path
+      options:
+        - Heuristics (no --llm)
+        - Claude analysis (--llm)
+        - OCR / text extraction
+        - HTTP server
+        - Docker
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Python version and OS
+      placeholder: "3.11 on Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Traceback or stderr output
+      render: shell
